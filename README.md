@@ -14,11 +14,11 @@
 
 ## Installation
 
-Requires ReShade 5.2+ for automatic HDR color space detection.
+Requires ReShade 5.2+ for automatic HDR color space detection, earlier versions default to SDR.
 
 1. Clone or [download](https://github.com/Starodubysko/sd-reshade-shaders/archive/refs/heads/main.zip) this repository.
-2. Copy the `Shaders/SDFX` folder into `reshade-shaders/Shaders` in your ReShade
-   installation (usually inside the game folder).
+2. Copy `Shaders/SDFX` or individual `.fx` files into `reshade-shaders/Shaders`
+   in your ReShade installation, usually inside the game folder.
 3. Open the in-game overlay (Home tab) and enable the shaders.
    Reload the effects if the game was already running.
 
@@ -31,11 +31,13 @@ Requires ReShade 5.2+ for automatic HDR color space detection.
 
 https://github.com/user-attachments/assets/95eee1c1-689a-4eff-afdc-38e75074fabc
 
-Conventional saturation pushes channels apart without darkening them, so saturated
-areas look brighter and clip first. `SD_SubSat` applies subtractive color behavior:
-as chromatic purity rises, it pulls luminance down so saturated areas stay grounded.
-Strength depends on channel ratios rather than brightness, darkening consistently
-across shadows and highlights unless Rolloff is raised.
+Conventional saturation pushes RGB channels apart without darkening them, so
+saturated areas look brighter and clip first. `SD_SubSat` applies subtractive
+color behavior: as chroma increases, it decreases luminance to keep colors
+deep without clipping. Attenuating weaker channels separates colors and shifts
+mixed hues slightly toward the dominant primary. Strength depends on channel
+ratios rather than brightness, darkening consistently across shadows and
+highlights unless Rolloff is raised.
 
 **Techniques**
 
@@ -45,8 +47,8 @@ across shadows and highlights unless Rolloff is raised.
 
 **Controls**
 
-- **Amount** sets the effect strength. Use `Ctrl+Click` to enter values greater than 1.
-- **Rolloff** gradually decreases the effect in bright areas. At 1, it bypasses reference white and specular highlights.
+- **Amount** sets the effect strength. Use `Ctrl+Click` to enter values greater than 1 if needed.
+- **Rolloff** decreases the effect gradually toward bright areas. At 1, reference white and specular highlights remain unchanged.
 
 </details>
 <details open>
@@ -56,17 +58,17 @@ across shadows and highlights unless Rolloff is raised.
 
 https://github.com/user-attachments/assets/e451fc16-aaba-4325-8a0b-be355977d6ea
 
-`SD_ColDensity` scales the RGB vector by a per-pixel factor, so channel ratios and hue stay intact.
-
-Darkening scales with saturation and proximity to pure primaries. At Amount 1:
-- Pure primaries (red, green, blue) lose up to 70% of their RGB value.
-- Secondaries (yellow, cyan, magenta) lose up to 45%, keeping composite colors from over-darkening.
+`SD_ColDensity` multiplies each RGB vector by a uniform scalar factor, preserving
+channel ratios and hue. Attenuation scales with chroma and proximity to pure
+primaries. At Amount 1:
+- Pure primaries (red, green, blue) lose 70% of their RGB value.
+- Secondaries (yellow, cyan, magenta) lose 45%, keeping composite colors from over-darkening.
 - Neutral tones (white, gray, black) remain unchanged.
 
 **Controls**
 
-- **Amount** sets the effect strength. Values greater than 1 (`Ctrl+Click`) darken smoothly to prevent black crush.
-- **Rolloff** gradually decreases the effect in bright areas. At 1, it bypasses reference white and specular highlights.
+- **Amount** sets the effect strength. Values greater than 1 (`Ctrl+Click`) darken smoothly, so colors never become black.
+- **Rolloff** decreases the effect gradually toward bright areas. At 1, reference white and specular highlights remain unchanged.
 
 </details>
 
@@ -81,8 +83,9 @@ and shaders adapting automatically.
   To adjust for a custom reference white (paper white),
   set `SD_REFERENCE_WHITE <nits>` in ReShade's Preprocessor definitions
   (applies to scRGB and HDR10).
-- Perceived strength may vary across color spaces. Use `Ctrl+Click` on the
-  Amount slider to overdrive if needed.
+- Compared to SDR, the effect is generally milder in scRGB and HDR10 on natural
+  colors, but steeper in HDR10 on pure single-channel primaries. Use `Ctrl+Click`
+  on the Amount slider to enter values greater than 1 if needed.
 
 ## Support
 

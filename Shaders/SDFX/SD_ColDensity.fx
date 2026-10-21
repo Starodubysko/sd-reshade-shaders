@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: CC-BY-NC-SA-4.0
 // Copyright (c) 2026 Starodubysko (https://github.com/Starodubysko/sd-reshade-shaders)
 
-#define SD_COLDENSITY
 #include "ReShade.fxh"
 
 uniform float cAmount <
@@ -19,7 +18,7 @@ uniform float cRolloff <
     ui_max = 1.00;
     ui_step = 0.05;
     ui_label = "Rolloff";
-    ui_tooltip = "Decreases the effect gradually in bright areas.\nAt 1, it bypasses reference white and specular highlights.";
+    ui_tooltip = "Decreases the effect gradually toward bright areas.\nAt 1, reference white and specular highlights remain unchanged.";
 > = 0.00;
 
 // Target nits for scRGB and HDR10 (ITU-R BT.2408 default)
@@ -72,10 +71,13 @@ float4 PS_SD_ColDensity(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) :
     float mean = (color.r + color.g + color.b) * (1.0 / 3.0);
     float rawDrop = chroma * rcpMax * (0.20 + 0.75 * (1.0 - mean * rcpMax));
 
-    float k1 = 1.0 - rawDrop;
-    float effDrop = (cAmount <= 1.0)
-        ? rawDrop * cAmount
-        : 1.0 - (k1 * k1) / (k1 + rawDrop * (cAmount - 1.0));
+    float effDrop = rawDrop * cAmount;
+    [branch]
+    if (cAmount > 1.0)
+    {
+        float k1 = 1.0 - rawDrop;
+        effDrop = 1.0 - (k1 * k1) / (k1 + rawDrop * (cAmount - 1.0));
+    }
 
     float rolloff = 1.0;
     [branch]

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: CC-BY-NC-SA-4.0
 // Copyright (c) 2026 Starodubysko (https://github.com/Starodubysko/sd-reshade-shaders)
 
-#define SD_SUBSAT
 #include "ReShade.fxh"
 
 uniform int cTechnique <
@@ -25,7 +24,7 @@ uniform float cRolloff <
     ui_max = 1.00;
     ui_step = 0.05;
     ui_label = "Rolloff";
-    ui_tooltip = "Decreases the effect gradually in bright areas.\nAt 1, it bypasses reference white and specular highlights.";
+    ui_tooltip = "Decreases the effect gradually toward bright areas.\nAt 1, reference white and specular highlights remain unchanged.";
 > = 0.00;
 
 // Target nits for scRGB and HDR10 (ITU-R BT.2408 default)
@@ -85,7 +84,7 @@ float4 PS_SD_SubSat(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_
         float3 drop = (0.60 + 1.30 * (1.0 - cNorm)) * cAmount;
         outColor = color * rcp(1.0 + sat * drop);
     }
-    else if (cTechnique == 1) // Balanced
+    else [branch] if (cTechnique == 1) // Balanced
     {
         float3 safeNorm = max(cNorm, 1e-7);
         float rootMean = (sqrt(cNorm.r) + sqrt(cNorm.g) + sqrt(cNorm.b)) * (1.0 / 3.0);
