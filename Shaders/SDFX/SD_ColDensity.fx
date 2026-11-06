@@ -57,7 +57,7 @@ float4 PS_SD_ColDensity(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) :
     if (cAmount <= 0.0)
         return src;
 
-    // Symmetric FP16 clamp prevents Inf/NaN while preserving negative wide-gamut coordinates
+    // FP16 bounds prevent Inf/NaN
     float3 safeSrc = clamp(src.rgb, -65504.0, 65504.0);
     float3 color = max(safeSrc, 0.0);
     float cMax = max(color.r, max(color.g, color.b));

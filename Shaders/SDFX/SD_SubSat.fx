@@ -63,7 +63,7 @@ float4 PS_SD_SubSat(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_
     if (cAmount <= 0.0)
         return src;
 
-    // FP16 bounds prevent Inf/NaN while preserving wide-gamut excursions
+    // FP16 bounds prevent Inf/NaN
     float3 color = clamp(src.rgb, 0.0, 65504.0);
     float3 neg = clamp(src.rgb, -65504.0, 0.0);
     float cMax = max(color.r, max(color.g, color.b));
@@ -114,7 +114,7 @@ float4 PS_SD_SubSat(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 
 technique SD_SubSat <
     ui_label = "SD Subtractive Saturation";
-    ui_tooltip = "Decreases luminance as chroma increases to keep saturated colors dense.";
+    ui_tooltip = "Decreases brightness as saturation increases to keep colors dense.";
 >
 {
     pass

@@ -24,51 +24,103 @@ Requires ReShade 5.2+ for automatic HDR color space detection, earlier versions 
 
 ## Shaders
 
-<details open>
-<summary><a id="sd_subsat"></a><b><code>SD_SubSat</code></b></summary>
+### `SD_SubSat`
 
-> Subtractive saturation that decreases luminance as chroma increases to keep saturated colors dense.
+> Subtractive saturation that decreases brightness as saturation increases to keep colors dense.
 
-https://github.com/user-attachments/assets/95eee1c1-689a-4eff-afdc-38e75074fabc
+https://github.com/user-attachments/assets/68ea9190-5141-4e03-a42e-bfc74a2f559b
 
-Conventional saturation pushes RGB channels apart without darkening them, so
-saturated areas look brighter and clip first. `SD_SubSat` applies subtractive
-color behavior: as chroma increases, it decreases luminance to keep colors
-deep without clipping. Attenuating weaker channels separates colors and shifts
-mixed hues slightly toward the dominant primary. Strength depends on channel
-ratios rather than brightness, darkening consistently across shadows and
-highlights unless Rolloff is raised.
+<details>
+<summary>Details</summary>
+
+Unlike conventional saturation, which pushes RGB channels apart without
+dimming them, `SD_SubSat` darkens weaker channels to separate colors and avoid
+clipping. Mixed hues shift slightly toward the dominant primary, and the effect
+stays consistent across shadows and highlights.
 
 **Techniques**
 
 - **Subtle** (default) uses gentle rational compression without power curves for a natural response on midtones and skin.
-- **Balanced** combines square-root mean density with moderate color separation for deeper overall contrast.
-- **Intense** applies harmonic mean density with steep channel suppression for strong color separation.
+- **Balanced** combines square-root mean density with moderate channel darkening for deeper overall contrast.
+- **Intense** applies harmonic mean density with a steeper curve for strong color separation.
 
 **Controls**
 
-- **Amount** sets the effect strength. Use `Ctrl+Click` to enter values greater than 1 if needed.
+- **Amount** sets the effect strength. Use `Ctrl+Click` to enter values greater than 1.
 - **Rolloff** decreases the effect gradually toward bright areas. At 1, reference white and specular highlights remain unchanged.
 
 </details>
-<details open>
-<summary><a id="sd_coldensity"></a><b><code>SD_ColDensity</code></b></summary>
+
+### `SD_ColDensity`
 
 > Darkens saturated colors by scaling RGB uniformly to keep hues and neutral tones unchanged.
 
-https://github.com/user-attachments/assets/e451fc16-aaba-4325-8a0b-be355977d6ea
+https://github.com/user-attachments/assets/74c73669-dff3-4afc-a36e-294a5d12da18
 
-`SD_ColDensity` multiplies each RGB vector by a uniform scalar factor, preserving
-channel ratios and hue. Attenuation scales with chroma and proximity to pure
-primaries. At Amount 1:
-- Pure primaries (red, green, blue) lose 70% of their RGB value.
-- Secondaries (yellow, cyan, magenta) lose 45%, keeping composite colors from over-darkening.
+<details>
+<summary>Details</summary>
+
+Strength scales with saturation and closeness to primary colors while keeping
+channel ratios intact. At Amount 1:
+- Primaries (red, green, blue) darken by 70%.
+- Secondaries (yellow, cyan, magenta) darken by 45%, keeping mixed hues from getting too dark.
 - Neutral tones (white, gray, black) remain unchanged.
 
 **Controls**
 
-- **Amount** sets the effect strength. Values greater than 1 (`Ctrl+Click`) darken smoothly, so colors never become black.
+- **Amount** sets the effect strength. Use `Ctrl+Click` to enter values greater than 1.
 - **Rolloff** decreases the effect gradually toward bright areas. At 1, reference white and specular highlights remain unchanged.
+
+</details>
+
+### `SD_Polarizer`
+
+> Darkens and saturates washed-out colors while keeping hues and neutral tones unchanged.
+
+https://github.com/user-attachments/assets/c894299f-5d62-437f-ad53-29c77e8c5b7c
+
+<details>
+<summary>Details</summary>
+
+Polarizing filters cut surface glare to reveal the rich colors beneath.
+`SD_Polarizer` offers a simple RGB approximation of this effect by decreasing
+the weakest channel and scaling the others proportionally:
+- Partially saturated colors respond the most, gaining depth and contrast.
+- Near-neutral colors, deep shadows and red-dominant hues darken less to avoid gray highlights, crushed blacks and muddy warm shades.
+- Neutral tones and fully saturated colors remain unchanged.
+
+**Controls**
+
+- **Amount** sets the effect strength. Use `Ctrl+Click` to enter values greater than 1.
+- **Rolloff** decreases the effect gradually toward bright areas. At 1, reference white and specular highlights remain unchanged.
+
+</details>
+
+### `SD_Orton`
+
+> Blends the image with an overexposed out-of-focus copy for a luminous glow, rich colors and deep shadows.
+
+https://github.com/user-attachments/assets/4e8a4aaa-5ca0-4838-ae19-57f82383f995
+
+<details>
+<summary>Details</summary>
+
+Michael Orton stacked two overexposed slides of the same scene, one sharp and
+one out of focus. `SD_Orton` emulates this by blurring a copy in linear light
+and multiplying it with the sharp image:
+- Bright areas glow into their surroundings, while broad shadows deepen and colors gain density.
+- Flat bright regions, reference white and HDR highlights above it remain unchanged.
+- Small highlights on dark backgrounds dim by design, as the blurred surroundings suppress isolated points.
+
+**Techniques**
+
+- **Classic** (default) overexposes every pixel of the sharp image, dissolving fine detail into a dreamy glow.
+- **Sharp** overexposes the local average instead, so fine detail keeps its contrast under the same tonal response.
+
+**Controls**
+
+- **Amount** sets the effect strength.
+- **Radius** sets the size of the glow.
 
 </details>
 
@@ -77,15 +129,11 @@ primaries. At Amount 1:
 Both SDR and HDR are supported, with ReShade detecting the active color space
 and shaders adapting automatically.
 
-- Place these shaders above SDR-only effects in the load order. Legacy shaders
+- Place these shaders above SDR-only effects in the load order, as legacy ones
   often clamp values to `[0, 1]`, clipping HDR highlights and wide-gamut colors.
-- Rolloff targets 203 nits (ITU-R BT.2408 default).
-  To adjust for a custom reference white (paper white),
-  set `SD_REFERENCE_WHITE <nits>` in ReShade's Preprocessor definitions
-  (applies to scRGB and HDR10).
-- Compared to SDR, the effect is generally milder in scRGB and HDR10 on natural
-  colors, but steeper in HDR10 on pure single-channel primaries. Use `Ctrl+Click`
-  on the Amount slider to enter values greater than 1 if needed.
+- Rolloff and `SD_Orton` target the ITU-R BT.2408 default of 203 nits.
+  To match a custom reference white in scRGB or HDR10,
+  set `SD_REFERENCE_WHITE <nits>` in ReShade's Preprocessor definitions.
 
 ## Support
 
