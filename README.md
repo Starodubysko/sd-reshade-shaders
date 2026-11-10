@@ -5,9 +5,10 @@
 [![License](https://img.shields.io/badge/License-MPL%202.0-0969DA.svg)](LICENSE)
 
 > [!NOTE]
-> Developed with LLM assistance and verified mathematically. Since I don't have an HDR monitor,
-> if you spot any quirks across different setups, have suggestions or some feedback on the code,
-> feel free to open an [issue](https://github.com/Starodubysko/sd-reshade-shaders/issues) or
+> Developed with LLM assistance and verified mathematically in HDR,
+> since I don't have a compatible monitor. If you spot any quirks across different
+> setups, have suggestions or some feedback on the code, feel free to open an
+> [issue](https://github.com/Starodubysko/sd-reshade-shaders/issues) or
 > [pull request](https://github.com/Starodubysko/sd-reshade-shaders/pulls) =)
 
 [Installation](#installation) · [Shaders](#shaders) · [HDR Notes](#hdr-notes) · [Support](#support)
@@ -28,7 +29,11 @@ Requires ReShade 5.2+ for automatic HDR color space detection, earlier versions 
 
 > Subtractive saturation that decreases brightness as saturation increases to keep colors dense.
 
+<table><tr><td width="560">
+
 https://github.com/user-attachments/assets/68ea9190-5141-4e03-a42e-bfc74a2f559b
+
+</td></tr></table>
 
 <details>
 <summary>Details</summary>
@@ -55,7 +60,11 @@ stays consistent across shadows and highlights.
 
 > Darkens saturated colors by scaling RGB uniformly to keep hues and neutral tones unchanged.
 
+<table><tr><td width="560">
+
 https://github.com/user-attachments/assets/74c73669-dff3-4afc-a36e-294a5d12da18
+
+</td></tr></table>
 
 <details>
 <summary>Details</summary>
@@ -77,7 +86,11 @@ channel ratios intact. At Amount 1:
 
 > Darkens and saturates washed-out colors while keeping hues and neutral tones unchanged.
 
+<table><tr><td width="560">
+
 https://github.com/user-attachments/assets/c894299f-5d62-437f-ad53-29c77e8c5b7c
+
+</td></tr></table>
 
 <details>
 <summary>Details</summary>
@@ -96,11 +109,46 @@ the weakest channel and scaling the others proportionally:
 
 </details>
 
+### `SD_Umbra`
+
+> Deepens shadows and lowers washed-out black levels while keeping midtones and highlights unchanged.
+
+<table><tr><td width="560">
+
+https://github.com/user-attachments/assets/7471b9e5-27ae-4964-8480-599a793afb22
+
+</td></tr></table>
+
+<details>
+<summary>Details</summary>
+
+`SD_Umbra` applies a smooth shadow curve in linear light, measuring darkness by the brightest RGB channel:
+- Shadows gain depth while keeping near-black detail visible unless Black Point is raised.
+- Saturated colors are judged by their strongest channel, so bright primaries like pure blue are not mistaken for shadows.
+- Midtones above the threshold, reference white and HDR highlights remain unchanged.
+
+**Techniques**
+
+- **Luma** (default) darkens RGB uniformly to keep hue and saturation.
+- **RGB** darkens each channel separately for richer colors in shadows.
+
+**Controls**
+
+- **Amount** sets the effect strength. Use `Ctrl+Click` to enter values greater than 1.
+- **Range** sets how far the effect extends from deep shadows toward midtones.
+- **Black Point** lowers washed-out black levels to zero. High values clip near-black detail.
+
+</details>
+
 ### `SD_Orton`
 
 > Blends the image with an overexposed out-of-focus copy for a luminous glow, rich colors and deep shadows.
 
+<table><tr><td width="560">
+
 https://github.com/user-attachments/assets/4e8a4aaa-5ca0-4838-ae19-57f82383f995
+
+</td></tr></table>
 
 <details>
 <summary>Details</summary>
@@ -131,7 +179,7 @@ and shaders adapting automatically.
 
 - Place these shaders above SDR-only effects in the load order, as legacy ones
   often clamp values to `[0, 1]`, clipping HDR highlights and wide-gamut colors.
-- Rolloff and `SD_Orton` target the ITU-R BT.2408 default of 203 nits.
+- All shaders target the ITU-R BT.2408 default of 203 nits, except `SD_SubSat` and `SD_ColDensity` when Rolloff is 0.
   To match a custom reference white in scRGB or HDR10,
   set `SD_REFERENCE_WHITE <nits>` in ReShade's Preprocessor definitions.
 
