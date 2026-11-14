@@ -49,19 +49,71 @@ float3 Bt709ToBt2020(float3 c)
 }
 #endif
 
-float3 Decode(float3 c)
+#if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
+// Guard 0 avoids Inf/NaN from pow()
+float3 SafePow(float3 x, float e)
+{
+    return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0;
+}
+
+// Sign-preserving slope-matched sRGB transfer, extended above 1 for HDR
+float3 LinearToSrgb(float3 l)
+{
+    float3 a = abs(l);
+    return (l >= 0.0 ? 1.0 : -1.0) * (a <= 0.003039935
+        ? a * 12.9232102
+        : 1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
+}
+
+float3 SrgbToLinear(float3 v)
+{
+    float3 a = abs(v);
+    return (v >= 0.0 ? 1.0 : -1.0) * (a <= 0.039285714
+        ? a * (1.0 / 12.9232102)
+        : SafePow((a + 0.055) / 1.055, 2.4));
+}
+
+float3 ToLinear(float3 c)
 {
 #if BUFFER_COLOR_SPACE == 2   // scRGB
-    return sqrt(max(c, 0.0));
+    return c * (80.0 / max(SD_REFERENCE_WHITE, 1.0));
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
-    float3 p = pow(saturate(c), 1.0 / 78.84375);
-    float3 lin = pow(max((p - 0.8359375) / (18.8515625 - 18.6875 * p), 0.0), 1.0 / 0.1593017578125);
-    return sqrt(max(Bt2020ToBt709(lin), 0.0));
-#elif BUFFER_COLOR_SPACE == 4 // HLG
+    float3 p = SafePow(saturate(c), 1.0 / 78.84375);
+    float3 num = max(p - 0.8359375, 0.0);
+    float3 den = max(18.8515625 - 18.6875 * p, 1e-6);
+    float3 lin = SafePow(num / den, 1.0 / 0.1593017578125);
+    return Bt2020ToBt709(lin * (10000.0 / max(SD_REFERENCE_WHITE, 1.0)));
+#else                         // HLG (0.265 scene light matches BT.2408 reference white)
     float3 e = saturate(c);
-    float3 hi = (exp((e - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
-    float3 scene = lerp(hi, e * e * (1.0 / 3.0), step(e, 0.5));
-    return sqrt(max(Bt2020ToBt709(scene), 0.0));
+    float3 scene = e <= 0.5
+        ? e * e * (1.0 / 3.0)
+        : (exp((e - 0.55991073) / 0.17883277) + 0.28466892) * (1.0 / 12.0);
+    return Bt2020ToBt709(scene * (1.0 / 0.265));
+#endif
+}
+
+float3 FromLinear(float3 lin)
+{
+#if BUFFER_COLOR_SPACE == 2   // scRGB
+    return clamp(lin * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
+#elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
+    float3 bt2020 = saturate(Bt709ToBt2020(lin) * (max(SD_REFERENCE_WHITE, 1.0) / 10000.0));
+    float3 y = SafePow(bt2020, 0.1593017578125);
+    float3 pq = SafePow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), 78.84375);
+    return bt2020 > 0.0 ? pq : 0.0;
+#else                         // HLG
+    float3 scene = max(Bt709ToBt2020(lin) * 0.265, 0.0);
+    return scene <= (1.0 / 12.0)
+        ? sqrt(3.0 * scene)
+        : 0.17883277 * log(max(12.0 * scene - 0.28466892, 1e-7)) + 0.55991073;
+#endif
+}
+#endif
+
+float3 Decode(float3 c)
+{
+#if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
+    return LinearToSrgb(ToLinear(c));
 #else                         // SDR (sRGB)
     return c;
 #endif
@@ -69,30 +121,10 @@ float3 Decode(float3 c)
 
 float3 Encode(float3 w)
 {
-#if BUFFER_COLOR_SPACE == 2   // scRGB
-    return w * w;
-#elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
-    float3 y = pow(max(Bt709ToBt2020(w * w), 0.0), 0.1593017578125);
-    return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), 78.84375);
-#elif BUFFER_COLOR_SPACE == 4 // HLG
-    float3 scene = max(Bt709ToBt2020(w * w), 0.0);
-    float3 hi = 0.17883277 * log(max(12.0 * scene - 0.28466892, 1e-7)) + 0.55991073;
-    return lerp(hi, sqrt(3.0 * scene), step(scene, 1.0 / 12.0));
+#if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
+    return FromLinear(SrgbToLinear(w));
 #else                         // SDR (sRGB)
     return w;
-#endif
-}
-
-float Level(float cMax)
-{
-#if BUFFER_COLOR_SPACE == 2   // scRGB
-    return cMax * sqrt(80.0 / max(SD_REFERENCE_WHITE, 1.0));
-#elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
-    return cMax * sqrt(10000.0 / max(SD_REFERENCE_WHITE, 1.0));
-#elif BUFFER_COLOR_SPACE == 4 // HLG
-    return cMax * sqrt(1.0 / 0.265);
-#else                         // SDR (sRGB)
-    return cMax;
 #endif
 }
 
@@ -104,19 +136,22 @@ float4 PS_SD_Polarizer(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : 
     if (cAmount <= 0.0)
         return src;
 
-    // FP16 bound prevents Inf/NaN
-    float3 color = min(src.rgb, 65504.0);
+    // FP16 bounds prevent Inf/NaN
+    float3 color = clamp(src.rgb, -65504.0, 65504.0);
     float3 work = Decode(color);
     float cMax = max(work.r, max(work.g, work.b));
     float cMin = min(work.r, min(work.g, work.b));
     float chroma = cMax - cMin;
 
-    // Relative chroma bound absorbs matrix rounding on neutrals; cMin guard preserves wide-gamut negatives
     [branch]
     if (chroma <= 1e-5 * cMax || cMin <= 1e-7)
-        return src;
+        return float4(color, src.a);
 
-    float level = Level(cMax);
+    float w = 1.0 - saturate(cRolloff) * smoothstep(0.0, 1.0, cMax);
+    [branch]
+    if (w <= 0.0)
+        return float4(color, src.a);
+
     float rcpMax = rcp(cMax);
     float rcpChroma = rcp(chroma);
     float sat = chroma * rcpMax;
@@ -127,17 +162,16 @@ float4 PS_SD_Polarizer(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : 
 
     float s2 = sat * sat;
     float s4 = s2 * s2;
-    float gate = (s4 * rcp(s4 + 0.008653650625)) * (veil * veil) * wSpec * smoothstep(0.0, 0.30, level); // 0.305^4 toe
+    // 0.305^4 saturation gate suppresses near-neutrals so skies and foliage darken cleanly
+    float gate = (s4 * rcp(s4 + 0.008653650625)) * (veil * veil) * wSpec * smoothstep(0.0, 0.30, cMax);
 
-    float2 x = float2(1.90, 3.14) * (cAmount * gate);
+    float2 x = float2(1.90, 3.14) * (min(cAmount, 65504.0) * gate);
     float2 d = x * rcp(1.0 + x);
 
     float3 invT = (cMax - work) * rcpChroma;
-    float3 outColor = Encode(work - cMin * (d.x + (d.y - d.x) * invT));
+    float3 outWork = work - cMin * (d.x + (d.y - d.x) * invT);
 
-    float w = 1.0 - saturate(cRolloff) * smoothstep(0.0, 1.0, level);
-
-    return float4(lerp(color, outColor, w), src.a);
+    return float4(Encode(lerp(work, outWork, w)), src.a);
 }
 
 technique SD_Polarizer <
