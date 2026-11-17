@@ -145,38 +145,45 @@ float4 PS_SD_SubSat(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_
     if (chroma <= max(1e-7, 1e-5 * cMax))
         return float4(safeSrc, src.a);
 
-    float w = 1.0 - saturate(cRolloff) * smoothstep(0.0, 1.0, cMax);
-    [branch]
-    if (w <= 0.0)
-        return float4(safeSrc, src.a);
-
+    float w = 1.0;
     float rcpMax = rcp(cMax);
-    float3 cNorm = color * rcpMax;
+    float3 u = color * rcpMax;
+    float3 u2 = u * u;
+    float l4 = sqrt(sqrt(dot(u2, u2)));
+
+    // Smooth symmetric L4 brightness avoids cMax creases along channel crossings in Rolloff
+    [branch]
+    if (cRolloff > 0.0)
+    {
+        float level = cMax * l4 * 0.7598356856515925;
+        w = 1.0 - saturate(cRolloff) * smoothstep(0.0, 1.0, level);
+        [branch]
+        if (w <= 0.0)
+            return float4(safeSrc, src.a);
+    }
+
+    // Quadratic opponent saturation s2 is C-inf across neutral and channel boundaries
+    float3 diff = float3(u.r - u.g, u.g - u.b, u.b - u.r);
+    float s2 = saturate(dot(diff, diff) * rcp(max(2.0 * (u2.r + u2.g + u2.b), 1e-30)));
+    float3 cRel = saturate(u * rcp(l4));
     float3 outColor;
 
     [branch]
     if (cTechnique == 0) // Subtle
     {
-        float sat = chroma * rcpMax;
-        float3 drop = (0.60 + 1.30 * (1.0 - cNorm)) * amt;
-        outColor = color * rcp(1.0 + sat * drop);
+        float3 drop = s2 * (0.90 + 1.40 * (1.0 - cRel)) * amt;
+        outColor = color * rcp(1.0 + drop);
     }
     else [branch] if (cTechnique == 1) // Balanced
     {
-        float3 safeNorm = max(cNorm, 1e-7);
-        float rootMean = (sqrt(cNorm.r) + sqrt(cNorm.g) + sqrt(cNorm.b)) * (1.0 / 3.0);
-        float density = rootMean * rootMean;
-
-        outColor = cMax * rcp(1.0 + 1.50 * amt * (1.0 - density))
-                 * SafePow(safeNorm, 1.0 + 0.55 * amt);
+        float3 drop = s2 * (1.25 + 1.45 * (1.0 - cRel)) * amt;
+        outColor = color * rcp(1.0 + drop) * SafePow(cRel, 0.75 * amt * s2);
     }
     else // Intense
     {
-        float3 safeNorm = max(cNorm, 1e-7);
-        float density = 3.0 / (1.0 / safeNorm.r + 1.0 / safeNorm.g + 1.0 / safeNorm.b);
-
-        outColor = cMax * rcp(1.0 + 2.00 * amt * (1.0 - density))
-                 * SafePow(safeNorm, 1.0 + 0.80 * amt);
+        float sSteep = s2 * (0.80 + 0.70 * s2);
+        float3 drop = sSteep * (1.85 + 2.15 * (1.0 - cRel)) * amt;
+        outColor = color * rcp(1.0 + drop) * SafePow(cRel, 1.35 * amt * sSteep);
     }
 
     float3 resWork = lerp(color, outColor, w);
@@ -184,11 +191,11 @@ float4 PS_SD_SubSat(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
     // Scale out-of-gamut negative linear channels uniformly so wide-gamut primaries keep hue
     float3 outPosLin = SrgbToLinear(resWork);
-    float cMaxLin = max(lin.r, max(lin.g, lin.b));
-    float linGain = max(outPosLin.r, max(outPosLin.g, outPosLin.b)) * rcp(max(cMaxLin, 1e-30));
+    float3 posLin = max(lin, 0.0);
+    float linGain = (outPosLin.r + outPosLin.g + outPosLin.b) * rcp(max(posLin.r + posLin.g + posLin.b, 1e-30));
     return float4(FromLinear(outPosLin + negLin * linGain), src.a);
 #else
-    float gain = max(outColor.r, max(outColor.g, outColor.b)) * rcpMax;
+    float gain = (outColor.r + outColor.g + outColor.b) * rcpMax * rcp(u.r + u.g + u.b);
     return float4(resWork + neg * lerp(1.0, gain, w), src.a);
 #endif
 }
