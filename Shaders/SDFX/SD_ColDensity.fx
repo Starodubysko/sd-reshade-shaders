@@ -18,7 +18,7 @@ uniform float cRolloff <
     ui_max = 1.00;
     ui_step = 0.05;
     ui_label = "Rolloff";
-    ui_tooltip = "Decreases the effect gradually toward bright areas.\nAt 1, reference white and specular highlights remain unchanged.";
+    ui_tooltip = "Reduces the effect toward bright areas.\nAt 1, reference white and specular highlights stay unchanged.";
 > = 0.00;
 
 // Target nits for scRGB and HDR10 (ITU-R BT.2408 default)
@@ -28,39 +28,37 @@ uniform float cRolloff <
     #endif
 #endif
 
+// IEEE range check scrubs NaN to 0 across D3D, OpenGL and Vulkan
+float SanitizeFinite(float x, float lo, float hi) { return (x >= lo) ? ((x <= hi) ? x : hi) : ((x < lo) ? lo : 0.0); }
+
+float3 SanitizeFinite(float3 x, float lo, float hi) { return float3(SanitizeFinite(x.r, lo, hi), SanitizeFinite(x.g, lo, hi), SanitizeFinite(x.b, lo, hi)); }
+
 #if BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
-// Per-channel saturation math runs in BT.709 so wide-gamut primaries behave like SDR
+// Saturation and mean ratios use BT.709 primaries to match SDR
 float3 Bt2020ToBt709(float3 c)
 {
-    return float3(
-        dot(c, float3( 1.6604910, -0.5876411, -0.0728499)),
-        dot(c, float3(-0.1245505,  1.1328999, -0.0083494)),
-        dot(c, float3(-0.0181508, -0.1005789,  1.1187297))
-    );
+    return float3(dot(c, float3( 1.6604910, -0.5876411, -0.0728499)),
+                  dot(c, float3(-0.1245505,  1.1328999, -0.0083494)),
+                  dot(c, float3(-0.0181508, -0.1005789,  1.1187297)));
 }
 
 float3 Bt709ToBt2020(float3 c)
 {
-    return float3(
-        dot(c, float3(0.6274039, 0.3292830, 0.0433131)),
-        dot(c, float3(0.0690973, 0.9195404, 0.0113623)),
-        dot(c, float3(0.0163914, 0.0880133, 0.8955953))
-    );
+    return float3(dot(c, float3(0.6274039, 0.3292830, 0.0433131)),
+                  dot(c, float3(0.0690973, 0.9195404, 0.0113623)),
+                  dot(c, float3(0.0163914, 0.0880133, 0.8955953)));
 }
 #endif
 
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
-// Guard 0 avoids Inf/NaN from pow()
-float3 SafePow(float3 x, float e)
-{
-    return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0;
-}
+// Guard 0 avoids Inf and NaN from pow()
+float3 SafePow(float3 x, float e) { return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0; }
 
 // Sign-preserving slope-matched sRGB transfer, extended above 1 for HDR
 float3 LinearToSrgb(float3 l)
 {
     float3 a = abs(l);
-    return (l >= 0.0 ? 1.0 : -1.0) * (a <= 0.003039935
+    return (l >= 0.0 ? float3(1.0, 1.0, 1.0) : float3(-1.0, -1.0, -1.0)) * (a <= 0.003039935
         ? a * 12.9232102
         : 1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
 }
@@ -68,7 +66,7 @@ float3 LinearToSrgb(float3 l)
 float3 SrgbToLinear(float3 v)
 {
     float3 a = abs(v);
-    return (v >= 0.0 ? 1.0 : -1.0) * (a <= 0.039285714
+    return (v >= 0.0 ? float3(1.0, 1.0, 1.0) : float3(-1.0, -1.0, -1.0)) * (a <= 0.039285714
         ? a * (1.0 / 12.9232102)
         : SafePow((a + 0.055) / 1.055, 2.4));
 }
@@ -79,9 +77,7 @@ float3 ToLinear(float3 c)
     return c * (80.0 / max(SD_REFERENCE_WHITE, 1.0));
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
     float3 p = SafePow(saturate(c), 1.0 / 78.84375);
-    float3 num = max(p - 0.8359375, 0.0);
-    float3 den = max(18.8515625 - 18.6875 * p, 1e-6);
-    float3 lin = SafePow(num / den, 1.0 / 0.1593017578125);
+    float3 lin = SafePow(max(p - 0.8359375, 0.0) / max(18.8515625 - 18.6875 * p, 1e-6), 1.0 / 0.1593017578125);
     return Bt2020ToBt709(lin * (10000.0 / max(SD_REFERENCE_WHITE, 1.0)));
 #else                         // HLG (0.265 scene light matches BT.2408 reference white)
     float3 e = saturate(c);
@@ -95,7 +91,7 @@ float3 ToLinear(float3 c)
 float3 FromLinear(float3 lin)
 {
 #if BUFFER_COLOR_SPACE == 2   // scRGB
-    return clamp(lin * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
+    return SanitizeFinite(lin * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
     float3 bt2020 = saturate(Bt709ToBt2020(lin) * (max(SD_REFERENCE_WHITE, 1.0) / 10000.0));
     float3 y = SafePow(bt2020, 0.1593017578125);
@@ -113,14 +109,13 @@ float3 FromLinear(float3 lin)
 float4 PS_SD_ColDensity(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
     float4 src = tex2D(ReShade::BackBuffer, texcoord);
+    float amt = SanitizeFinite(cAmount, 0.0, 65504.0);
 
     [branch]
-    if (cAmount <= 0.0)
+    if (amt <= 0.0)
         return src;
 
-    float amt = min(cAmount, 65504.0);
-    // FP16 bounds prevent Inf/NaN
-    float3 safeSrc = clamp(src.rgb, -65504.0, 65504.0);
+    float3 safeSrc = SanitizeFinite(src.rgb, -65504.0, 65504.0);
 
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
     float3 lin = ToLinear(safeSrc);
@@ -137,7 +132,7 @@ float4 PS_SD_ColDensity(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) :
     if (chroma <= max(1e-7, 1e-5 * cMax))
         return float4(safeSrc, src.a);
 
-    float rol = 1.0 - saturate(cRolloff) * smoothstep(0.0, 1.0, cMax);
+    float rol = 1.0 - SanitizeFinite(cRolloff, 0.0, 1.0) * smoothstep(0.0, 1.0, cMax);
     [branch]
     if (rol <= 0.0)
         return float4(safeSrc, src.a);
@@ -159,8 +154,8 @@ float4 PS_SD_ColDensity(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) :
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
     // Scale out-of-gamut negative linear channels uniformly so wide-gamut primaries keep hue
     float3 outPosLin = SrgbToLinear(color * scale);
-    float cMaxLin = max(lin.r, max(lin.g, lin.b));
-    float linGain = max(outPosLin.r, max(outPosLin.g, outPosLin.b)) * rcp(max(cMaxLin, 1e-30));
+    float3 posLin = max(lin, 0.0);
+    float linGain = (outPosLin.r + outPosLin.g + outPosLin.b) * rcp(max(posLin.r + posLin.g + posLin.b, 1e-30));
     return float4(FromLinear(outPosLin + min(lin, 0.0) * linGain), src.a);
 #else
     return float4(work * scale, src.a);

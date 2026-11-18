@@ -44,40 +44,34 @@ uniform float cBlackPoint <
     #endif
 #endif
 
+// IEEE range check scrubs NaN to 0 across D3D, OpenGL and Vulkan
+float SanitizeFinite(float x, float lo, float hi) { return (x >= lo) ? ((x <= hi) ? x : hi) : ((x < lo) ? lo : 0.0); }
+
+float3 SanitizeFinite(float3 x, float lo, float hi) { return float3(SanitizeFinite(x.r, lo, hi), SanitizeFinite(x.g, lo, hi), SanitizeFinite(x.b, lo, hi)); }
+
 #if BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
-// Shadow range and per-channel darkening are defined on BT.709 primaries, as in SDR
+// Shadow range and per-channel darkening use BT.709 primaries to match SDR
 float3 Bt2020ToBt709(float3 c)
 {
-    return float3(
-        dot(c, float3( 1.6604910, -0.5876411, -0.0728499)),
-        dot(c, float3(-0.1245505,  1.1328999, -0.0083494)),
-        dot(c, float3(-0.0181508, -0.1005789,  1.1187297))
-    );
+    return float3(dot(c, float3( 1.6604910, -0.5876411, -0.0728499)),
+                  dot(c, float3(-0.1245505,  1.1328999, -0.0083494)),
+                  dot(c, float3(-0.0181508, -0.1005789,  1.1187297)));
 }
 
 float3 Bt709ToBt2020(float3 c)
 {
-    return float3(
-        dot(c, float3(0.6274039, 0.3292830, 0.0433131)),
-        dot(c, float3(0.0690973, 0.9195404, 0.0113623)),
-        dot(c, float3(0.0163914, 0.0880133, 0.8955953))
-    );
+    return float3(dot(c, float3(0.6274039, 0.3292830, 0.0433131)),
+                  dot(c, float3(0.0690973, 0.9195404, 0.0113623)),
+                  dot(c, float3(0.0163914, 0.0880133, 0.8955953)));
 }
 #endif
 
-// Guard 0 avoids Inf/NaN from pow()
-float SafePow(float x, float e)
-{
-    return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0;
-}
+// Guard 0 avoids Inf and NaN from pow()
+float SafePow(float x, float e) { return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0; }
 
-float3 SafePow(float3 x, float e)
-{
-    return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0;
-}
+float3 SafePow(float3 x, float e) { return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0; }
 
-// Sign-preserving sRGB transfer with slope-matched segments: the IEC 0.04045 / 12.92
-// junction has a slope kink that sits inside the shadow range
+// Sign-preserving slope-matched sRGB transfer avoids the IEC 0.04045 shadow slope kink
 float SrgbToLinear(float v)
 {
     float a = abs(v);
@@ -89,7 +83,7 @@ float SrgbToLinear(float v)
 float3 SrgbToLinear(float3 v)
 {
     float3 a = abs(v);
-    return (v >= 0.0 ? 1.0 : -1.0) * (a <= 0.039285714
+    return (v >= 0.0 ? float3(1.0, 1.0, 1.0) : float3(-1.0, -1.0, -1.0)) * (a <= 0.039285714
         ? a * (1.0 / 12.9232102)
         : SafePow((a + 0.055) / 1.055, 2.4));
 }
@@ -105,7 +99,7 @@ float LinearToSrgb(float l)
 float3 LinearToSrgb(float3 l)
 {
     float3 a = abs(l);
-    return (l >= 0.0 ? 1.0 : -1.0) * (a <= 0.003039935
+    return (l >= 0.0 ? float3(1.0, 1.0, 1.0) : float3(-1.0, -1.0, -1.0)) * (a <= 0.003039935
         ? a * 12.9232102
         : 1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
 }
@@ -117,9 +111,7 @@ float3 ToLinear(float3 c)
     return c * (80.0 / max(SD_REFERENCE_WHITE, 1.0));
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
     float3 p = SafePow(saturate(c), 1.0 / 78.84375);
-    float3 num = max(p - 0.8359375, 0.0);
-    float3 den = max(18.8515625 - 18.6875 * p, 1e-6);
-    float3 lin = SafePow(num / den, 1.0 / 0.1593017578125);
+    float3 lin = SafePow(max(p - 0.8359375, 0.0) / max(18.8515625 - 18.6875 * p, 1e-6), 1.0 / 0.1593017578125);
     return Bt2020ToBt709(lin * (10000.0 / max(SD_REFERENCE_WHITE, 1.0)));
 #elif BUFFER_COLOR_SPACE == 4 // HLG (0.265 scene light matches BT.2408 reference white)
     float3 e = saturate(c);
@@ -135,7 +127,7 @@ float3 ToLinear(float3 c)
 float3 FromLinear(float3 l)
 {
 #if BUFFER_COLOR_SPACE == 2   // scRGB
-    return clamp(l * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
+    return SanitizeFinite(l * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
     float3 bt2020 = saturate(Bt709ToBt2020(l) * (max(SD_REFERENCE_WHITE, 1.0) / 10000.0));
     float3 y = SafePow(bt2020, 0.1593017578125);
@@ -151,7 +143,7 @@ float3 FromLinear(float3 l)
 #endif
 }
 
-// Darkening weight: 1 at signal 0, 0 at the ceiling with zero first and second derivatives
+// Quintic weight: 1 at signal 0, 0 at ceiling p with zero first and second derivatives
 float Weight(float s, float p, float rcpP)
 {
     float u = saturate((p - s) * rcpP);
@@ -167,18 +159,17 @@ float3 Weight(float3 s, float p, float rcpP)
 float4 PS_SD_Umbra(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
     float4 src = tex2D(ReShade::BackBuffer, texcoord);
+    float amt = SanitizeFinite(cAmount, 0.0, 65504.0);
+    float bp = SanitizeFinite(cBlackPoint, 0.0, 65504.0);
 
     [branch]
-    if (cAmount <= 0.0 && cBlackPoint <= 0.0)
+    if (amt <= 0.0 && bp <= 0.0)
         return src;
 
-    // FP16 bounds prevent Inf/NaN
-    float3 safeRgb = clamp(src.rgb, -65504.0, 65504.0);
+    float3 safeRgb = SanitizeFinite(src.rgb, -65504.0, 65504.0);
+    float p = 0.20 + 0.50 * SanitizeFinite(cRange, 0.0, 1.0);
 
-    // Shadow ceiling in sRGB signal relative to reference white
-    float p = 0.20 + 0.50 * saturate(cRange);
-
-    // Gate on the dominant channel so saturated colors cannot pass as shadows
+    // Gate on the dominant channel so bright primaries never pass as shadows
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
     float3 lin = ToLinear(safeRgb);
     float cMax = max(lin.r, max(lin.g, lin.b));
@@ -201,24 +192,27 @@ float4 PS_SD_Umbra(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_T
     float sPos = max(sMax, 0.0);
 #endif
 
-    // Linear-light gain 1 - k * w rises from 1 - k at pure black to 1 at the ceiling; gain that
-    // grows with level keeps per-channel darkening below or equal to the uniform result
+    // Linear-light gain rises from 1 - k at pure black to 1 at p so RGB stays at or below Luma
     float rcpP = rcp(p);
-    float k = 1.0 - rcp(1.0 + 2.5 * clamp(cAmount, 0.0, 65504.0));
-
-    // Black Point offset scaled by w pulls dark tones down to 0 and joins smoothly at p
-    float b = min(clamp(cBlackPoint, 0.0, 65504.0) * 0.08, 0.5 * p);
-    float wb = Weight(b, p, rcpP);
-    float beta = SrgbToLinear(b) * (rcp(wb) - k);
-
+    float k = 1.0 - rcp(1.0 + 2.5 * amt);
     float w = Weight(sPos, p, rcpP);
 
-    // Uniform linear gain; clamping cPos avoids 0 * Inf at pure black when beta == 0
-    float gain = max(1.0 - (k + beta * rcp(max(cPos, 1e-12))) * w, 0.0);
+    float beta = 0.0;
+    float gain = 1.0 - k * w;
+    [branch]
+    if (bp > 0.0)
+    {
+        float b = min(bp * 0.08, 0.5 * p);
+        beta = SrgbToLinear(b) * (rcp(Weight(b, p, rcpP)) - k);
+        gain = max(gain - beta * rcp(max(cPos, 1e-12)) * w, 0.0);
+    }
+
     float3 outLin = lin * gain;
 
+    int tech = clamp(cTechnique, 0, 1);
+
     [branch]
-    if (cTechnique == 1) // RGB
+    if (tech == 1) // RGB
     {
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
         float3 sig = LinearToSrgb(max(lin, 0.0));
@@ -230,7 +224,7 @@ float4 PS_SD_Umbra(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_T
         // Negative wide-gamut channels follow the uniform gain
         float3 rgbLin = max(max(lin, 0.0) * (1.0 - k * wc) - beta * wc, 0.0) + min(lin, 0.0) * gain;
 
-        // Fades to the uniform result over the upper half of the range so chromatic gradients stay C1
+        // Fade to uniform gain across the upper half of p so chromatic transitions stay C1
         float t = saturate((p - sPos) * rcpP * 2.0);
         outLin = lerp(outLin, rgbLin, t * t * (3.0 - 2.0 * t));
     }

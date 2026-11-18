@@ -44,70 +44,67 @@ uniform float cRgbMix <
     #endif
 #endif
 
+// IEEE range check scrubs NaN to 0 across D3D, OpenGL and Vulkan
+float SanitizeFinite(float x, float lo, float hi) { return (x >= lo) ? ((x <= hi) ? x : hi) : ((x < lo) ? lo : 0.0); }
+
+float3 SanitizeFinite(float3 x, float lo, float hi) { return float3(SanitizeFinite(x.r, lo, hi), SanitizeFinite(x.g, lo, hi), SanitizeFinite(x.b, lo, hi)); }
+
 // ITU-R BT.709 and BT.2020 matrices (D65 white point)
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
 float3 Bt709ToBt2020(float3 c)
 {
-    return float3(
-        dot(c, float3(0.6274039, 0.3292830, 0.0433131)),
-        dot(c, float3(0.0690973, 0.9195404, 0.0113623)),
-        dot(c, float3(0.0163914, 0.0880133, 0.8955953))
-    );
+    return float3(dot(c, float3(0.6274039, 0.3292830, 0.0433131)),
+                  dot(c, float3(0.0690973, 0.9195404, 0.0113623)),
+                  dot(c, float3(0.0163914, 0.0880133, 0.8955953)));
 }
 #endif
 
 #if BUFFER_COLOR_SPACE == 2
 float3 Bt2020ToBt709(float3 c)
 {
-    return float3(
-        dot(c, float3( 1.6604910, -0.5876411, -0.0728499)),
-        dot(c, float3(-0.1245505,  1.1328999, -0.0083494)),
-        dot(c, float3(-0.0181508, -0.1005789,  1.1187297))
-    );
+    return float3(dot(c, float3( 1.6604910, -0.5876411, -0.0728499)),
+                  dot(c, float3(-0.1245505,  1.1328999, -0.0083494)),
+                  dot(c, float3(-0.0181508, -0.1005789,  1.1187297)));
 }
 #endif
 
-// Guard prevents ps_5_0 log2(0) NaN while keeping zero inputs exact
-float SafePow(float x, float e)
-{
-    return (x > 0.0) ? pow(max(x, 1e-30), e) : 0.0;
-}
+// Guard 0 avoids log2(0) NaN while keeping zero inputs exact
+float SafePow(float x, float e) { return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0; }
 
-float3 SafePow(float3 x, float e)
-{
-    return float3(
-        SafePow(x.r, e),
-        SafePow(x.g, e),
-        SafePow(x.b, e)
-    );
-}
+float3 SafePow(float3 x, float e) { return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0; }
 
-// Sign-preserving slope-matched sRGB transfer prevents IEC shadow slope kink
+// Sign-preserving slope-matched sRGB transfer avoids the IEC shadow slope kink
 float LinearToSrgb(float l)
 {
     float a = abs(l);
-    float s = (l >= 0.0) ? 1.0 : -1.0;
-    float y = (a <= 0.003039935) ? (a * 12.9232102) : (1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
-    return s * y;
+    return (l >= 0.0 ? 1.0 : -1.0) * (a <= 0.003039935
+        ? a * 12.9232102
+        : 1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
 }
 
 float SrgbToLinear(float v)
 {
     float a = abs(v);
-    float s = (v >= 0.0) ? 1.0 : -1.0;
-    float y = (a <= 0.039285714) ? (a / 12.9232102) : SafePow((a + 0.055) / 1.055, 2.4);
-    return s * y;
+    return (v >= 0.0 ? 1.0 : -1.0) * (a <= 0.039285714
+        ? a * (1.0 / 12.9232102)
+        : SafePow((a + 0.055) / 1.055, 2.4));
 }
 
 #if BUFFER_COLOR_SPACE != 2 && BUFFER_COLOR_SPACE != 3 && BUFFER_COLOR_SPACE != 4
 float3 LinearToSrgb(float3 l)
 {
-    return float3(LinearToSrgb(l.r), LinearToSrgb(l.g), LinearToSrgb(l.b));
+    float3 a = abs(l);
+    return (l >= 0.0 ? float3(1.0, 1.0, 1.0) : float3(-1.0, -1.0, -1.0)) * (a <= 0.003039935
+        ? a * 12.9232102
+        : 1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
 }
 
 float3 SrgbToLinear(float3 v)
 {
-    return float3(SrgbToLinear(v.r), SrgbToLinear(v.g), SrgbToLinear(v.b));
+    float3 a = abs(v);
+    return (v >= 0.0 ? float3(1.0, 1.0, 1.0) : float3(-1.0, -1.0, -1.0)) * (a <= 0.039285714
+        ? a * (1.0 / 12.9232102)
+        : SafePow((a + 0.055) / 1.055, 2.4));
 }
 #endif
 
@@ -118,18 +115,13 @@ float3 ToWorkLinear(float3 c)
     return Bt709ToBt2020(c * (80.0 / max(SD_REFERENCE_WHITE, 1.0)));
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
     float3 p = SafePow(saturate(c), 1.0 / 78.84375);
-    float3 num = max(p - 0.8359375, 0.0);
-    float3 den = max(18.8515625 - 18.6875 * p, 1e-6);
-    float3 lin = SafePow(num / den, 1.0 / 0.1593017578125);
+    float3 lin = SafePow(max(p - 0.8359375, 0.0) / max(18.8515625 - 18.6875 * p, 1e-6), 1.0 / 0.1593017578125);
     return lin * (10000.0 / max(SD_REFERENCE_WHITE, 1.0));
 #elif BUFFER_COLOR_SPACE == 4 // HLG (0.265 scene light matches BT.2408 reference white)
     float3 e = saturate(c);
-    float3 hi = (exp((e - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
-    float3 scene = float3(
-        (e.r <= 0.5) ? (e.r * e.r * (1.0 / 3.0)) : hi.r,
-        (e.g <= 0.5) ? (e.g * e.g * (1.0 / 3.0)) : hi.g,
-        (e.b <= 0.5) ? (e.b * e.b * (1.0 / 3.0)) : hi.b
-    );
+    float3 scene = e <= 0.5
+        ? e * e * (1.0 / 3.0)
+        : (exp((e - 0.55991073) / 0.17883277) + 0.28466892) * (1.0 / 12.0);
     return scene * (1.0 / 0.265);
 #else                         // SDR (sRGB)
     return SrgbToLinear(c);
@@ -139,7 +131,7 @@ float3 ToWorkLinear(float3 c)
 float3 FromWorkLinear(float3 l)
 {
 #if BUFFER_COLOR_SPACE == 2   // scRGB
-    return clamp(Bt2020ToBt709(l) * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
+    return SanitizeFinite(Bt2020ToBt709(l) * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
     float3 bt2020 = saturate(l * (max(SD_REFERENCE_WHITE, 1.0) / 10000.0));
     float3 y = SafePow(bt2020, 0.1593017578125);
@@ -147,13 +139,9 @@ float3 FromWorkLinear(float3 l)
     return bt2020 > 0.0 ? pq : 0.0;
 #elif BUFFER_COLOR_SPACE == 4 // HLG
     float3 scene = max(l * 0.265, 0.0);
-    float3 lo = sqrt(3.0 * scene);
-    float3 hi = 0.17883277 * log(max(12.0 * scene - 0.28466892, 1e-7)) + 0.55991073;
-    return float3(
-        (scene.r <= (1.0 / 12.0)) ? lo.r : hi.r,
-        (scene.g <= (1.0 / 12.0)) ? lo.g : hi.g,
-        (scene.b <= (1.0 / 12.0)) ? lo.b : hi.b
-    );
+    return scene <= (1.0 / 12.0)
+        ? sqrt(3.0 * scene)
+        : 0.17883277 * log(max(12.0 * scene - 0.28466892, 1e-7)) + 0.55991073;
 #else                         // SDR (sRGB)
     return LinearToSrgb(l);
 #endif
@@ -178,7 +166,7 @@ float CurveSignal(float s, float k, float p, bool isSoften)
     float t = (s - p) * rcpDen;
     float absT = abs(t);
 
-    // Denominators stay at least 1.0 to prevent movc 0/0 NaN on untaken SIMD lanes
+    // Denominators stay at least 1.0 to avoid movc 0/0 NaN on untaken SIMD lanes
     float edge;
     if (isSoften)
     {
@@ -206,28 +194,25 @@ float EvalCurve(float x, float k, float p, float m1, bool isSoften)
         float t = 1.0 + 2.5 * d;
         return x + (m1 - 1.0) * d * rcp(t * t);
     }
-    float s = LinearToSrgb(saturate(x));
-    return SrgbToLinear(CurveSignal(s, k, p, isSoften));
+    return SrgbToLinear(CurveSignal(LinearToSrgb(saturate(x)), k, p, isSoften));
 }
 
 float4 PS_SD_Contrast(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
     float4 src = tex2D(ReShade::BackBuffer, texcoord);
+    float amt = SanitizeFinite(cAmount, 0.0, 65504.0);
 
     [branch]
-    if (cAmount <= 0.0)
+    if (amt <= 0.0)
         return src;
 
-    // FP16 bounds prevent Inf/NaN propagation
-    float3 safeRgb = clamp(src.rgb, -65504.0, 65504.0);
-    float3 lin = ToWorkLinear(safeRgb);
+    float3 lin = ToWorkLinear(SanitizeFinite(src.rgb, -65504.0, 65504.0));
 
-    bool isSoften = (cTechnique != 0);
-    float amt = max(cAmount, 0.0);
+    bool isSoften = (clamp(cTechnique, 0, 1) != 0);
     float k = 2.0 * amt * rcp(1.0 + amt);
-    float p = 0.22 + 0.50 * saturate(cPivot);
+    float p = 0.22 + 0.50 * SanitizeFinite(cPivot, 0.0, 1.0);
     float m1 = isSoften ? (1.0 + k) : rcp(1.0 + k);
-    float mixVal = saturate(cRgbMix);
+    float mixVal = SanitizeFinite(cRgbMix, 0.0, 1.0);
     float minChan = min(lin.r, min(lin.g, lin.b));
 
     float lumaGain = m1;
@@ -237,8 +222,7 @@ float4 PS_SD_Contrast(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : S
     if (mixVal < 1.0 || minChan <= 0.0)
     {
         float yPos = max(WorkLuma(lin), 0.0);
-        float meanSq = dot(lin, lin) * (1.0 / 3.0);
-        float keyLin = sqrt(0.5 * meanSq + 0.5 * yPos * yPos);
+        float keyLin = sqrt(0.5 * dot(lin, lin) * (1.0 / 3.0) + 0.5 * yPos * yPos);
         lumaGain = (keyLin > 1e-6) ? (EvalCurve(keyLin, k, p, m1, isSoften) * rcp(keyLin)) : m1;
         lumaLin = lin * lumaGain;
 
@@ -247,8 +231,7 @@ float4 PS_SD_Contrast(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : S
         float cMax = max(lin.r, max(lin.g, lin.b));
         float ceiling = 1.0 + 2.0 * max(EvalCurve(max(cMax, 1.0), k, p, m1, isSoften) - 1.0, 0.0);
         float3 deltaAll = lumaLin - lin;
-        float3 avail = max(ceiling - lin, 1e-12);
-        float3 u = max(deltaAll, 0.0) * rcp(avail);
+        float3 u = max(deltaAll, 0.0) * rcp(max(ceiling - lin, 1e-12));
         float uMax = max(u.r, max(u.g, u.b));
         float3 un = (uMax > 0.0) ? (u * rcp(uMax)) : 0.0;
         float3 un2 = un * un;
@@ -256,8 +239,8 @@ float4 PS_SD_Contrast(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : S
         const float t0 = 0.75;
         if (U > t0)
         {
-            float e = (U - t0) * rcp(1.0 - t0);
-            float gCap = t0 + (1.0 - t0) * ((e > 1e6) ? 1.0 : (e * rsqrt(1.0 + e * e)));
+            float ec = min((U - t0) * (1.0 / (1.0 - t0)), 1e8);
+            float gCap = t0 + (1.0 - t0) * (ec * rsqrt(1.0 + ec * ec));
             lumaLin = lin + (gCap * rcp(U)) * deltaAll;
         }
 #endif

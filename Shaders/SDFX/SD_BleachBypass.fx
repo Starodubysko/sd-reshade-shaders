@@ -7,7 +7,7 @@ uniform int cTechnique <
     ui_type = "combo";
     ui_items = "Subtle\0Balanced\0Intense\0Color\0";
     ui_label = "Technique";
-    ui_tooltip = "Subtle protects warm amber and skin tones while muting green and cyan hues with gentle shadow compression.\nBalanced deepens shadows and lower midtones with uniform desaturation and color darkening.\nIntense combines deep shadows, lifted upper midtones and strong desaturation.\nColor skips neutral contrast and applies only desaturation, color darkening and Tone to pair with SD Contrast.";
+    ui_tooltip = "Subtle protects amber and skin tones while muting green and cyan hues with gentle shadow compression.\nBalanced deepens shadows and lower midtones with uniform desaturation and color darkening.\nIntense combines deep shadows, lifted upper midtones and strong desaturation.\nColor skips neutral contrast and applies only desaturation, color darkening and Tone to pair with SD Contrast.";
 > = 0;
 
 uniform float cAmount <
@@ -32,7 +32,7 @@ uniform float cToneAmount <
     ui_max = 1.00;
     ui_step = 0.05;
     ui_label = "Tone Amount";
-    ui_tooltip = "Sets Tone tint strength.\nCtrl+Click to enter values greater than 1.";
+    ui_tooltip = "Sets tint strength.\nCtrl+Click to enter values greater than 1.";
 > = 0.50;
 
 // Target nits for scRGB and HDR10 (ITU-R BT.2408 default)
@@ -42,24 +42,25 @@ uniform float cToneAmount <
     #endif
 #endif
 
+// IEEE range check scrubs NaN to 0 across D3D, OpenGL and Vulkan
+float SanitizeFinite(float x, float lo, float hi) { return (x >= lo) ? ((x <= hi) ? x : hi) : ((x < lo) ? lo : 0.0); }
+
+float3 SanitizeFinite(float3 x, float lo, float hi) { return float3(SanitizeFinite(x.r, lo, hi), SanitizeFinite(x.g, lo, hi), SanitizeFinite(x.b, lo, hi)); }
+
 // ITU-R BT.709 and BT.2020 conversions (D65 white point)
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
 float3 Bt709ToBt2020(float3 c)
 {
-    return float3(
-        dot(c, float3(0.6274039, 0.3292830, 0.0433131)),
-        dot(c, float3(0.0690973, 0.9195404, 0.0113623)),
-        dot(c, float3(0.0163914, 0.0880133, 0.8955953))
-    );
+    return float3(dot(c, float3(0.6274039, 0.3292830, 0.0433131)),
+                  dot(c, float3(0.0690973, 0.9195404, 0.0113623)),
+                  dot(c, float3(0.0163914, 0.0880133, 0.8955953)));
 }
 
 float3 Bt2020ToBt709(float3 c)
 {
-    return float3(
-        dot(c, float3( 1.6604910, -0.5876411, -0.0728499)),
-        dot(c, float3(-0.1245505,  1.1328999, -0.0083494)),
-        dot(c, float3(-0.0181508, -0.1005789,  1.1187297))
-    );
+    return float3(dot(c, float3( 1.6604910, -0.5876411, -0.0728499)),
+                  dot(c, float3(-0.1245505,  1.1328999, -0.0083494)),
+                  dot(c, float3(-0.0181508, -0.1005789,  1.1187297)));
 }
 #endif
 
@@ -72,47 +73,43 @@ float3 ToBt709(float3 c)
 #endif
 }
 
-// Guard prevents ps_5_0 log2(0) NaN while keeping zero inputs exact
-float SafePow(float x, float e)
-{
-    return (x > 0.0) ? pow(max(x, 1e-30), e) : 0.0;
-}
+// Guard 0 avoids log2(0) NaN while keeping zero inputs exact
+float SafePow(float x, float e) { return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0; }
 
-float3 SafePow(float3 x, float e)
-{
-    return float3(
-        SafePow(x.r, e),
-        SafePow(x.g, e),
-        SafePow(x.b, e)
-    );
-}
+float3 SafePow(float3 x, float e) { return x > 0.0 ? pow(max(x, 1e-30), e) : 0.0; }
 
-// Sign-preserving slope-matched sRGB constants prevent the IEC shadow slope kink
+// Sign-preserving slope-matched sRGB constants avoid the IEC shadow slope kink
 float LinearToSrgb(float l)
 {
     float a = abs(l);
-    float s = (l >= 0.0) ? 1.0 : -1.0;
-    float y = (a <= 0.003039935) ? (a * 12.9232102) : (1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
-    return s * y;
+    return (l >= 0.0 ? 1.0 : -1.0) * (a <= 0.003039935
+        ? a * 12.9232102
+        : 1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
 }
 
 float SrgbToLinear(float v)
 {
     float a = abs(v);
-    float s = (v >= 0.0) ? 1.0 : -1.0;
-    float y = (a <= 0.039285714) ? (a * (1.0 / 12.9232102)) : SafePow((a + 0.055) / 1.055, 2.4);
-    return s * y;
+    return (v >= 0.0 ? 1.0 : -1.0) * (a <= 0.039285714
+        ? a * (1.0 / 12.9232102)
+        : SafePow((a + 0.055) / 1.055, 2.4));
 }
 
 #if BUFFER_COLOR_SPACE != 2 && BUFFER_COLOR_SPACE != 3 && BUFFER_COLOR_SPACE != 4
 float3 LinearToSrgb(float3 l)
 {
-    return float3(LinearToSrgb(l.r), LinearToSrgb(l.g), LinearToSrgb(l.b));
+    float3 a = abs(l);
+    return (l >= 0.0 ? float3(1.0, 1.0, 1.0) : float3(-1.0, -1.0, -1.0)) * (a <= 0.003039935
+        ? a * 12.9232102
+        : 1.055 * SafePow(a, 1.0 / 2.4) - 0.055);
 }
 
 float3 SrgbToLinear(float3 v)
 {
-    return float3(SrgbToLinear(v.r), SrgbToLinear(v.g), SrgbToLinear(v.b));
+    float3 a = abs(v);
+    return (v >= 0.0 ? float3(1.0, 1.0, 1.0) : float3(-1.0, -1.0, -1.0)) * (a <= 0.039285714
+        ? a * (1.0 / 12.9232102)
+        : SafePow((a + 0.055) / 1.055, 2.4));
 }
 #endif
 
@@ -124,16 +121,12 @@ float3 ToWorkLinear(float3 encoded)
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
     float3 p = SafePow(saturate(encoded), 1.0 / 78.84375);
     float3 n = max(p - 0.8359375, 0.0) / max(18.8515625 - 18.6875 * p, 1e-6);
-    float3 l = SafePow(n, 1.0 / 0.1593017578125);
-    return l * (10000.0 / max(SD_REFERENCE_WHITE, 1.0));
+    return SafePow(n, 1.0 / 0.1593017578125) * (10000.0 / max(SD_REFERENCE_WHITE, 1.0));
 #elif BUFFER_COLOR_SPACE == 4 // HLG (0.265 scene light matches BT.2408 reference white)
     float3 e = saturate(encoded);
-    float3 hi = (exp((e - 0.55991073) / 0.17883277) + 0.28466892) * (1.0 / 12.0);
-    float3 scene = float3(
-        (e.r <= 0.5) ? (e.r * e.r * (1.0 / 3.0)) : hi.r,
-        (e.g <= 0.5) ? (e.g * e.g * (1.0 / 3.0)) : hi.g,
-        (e.b <= 0.5) ? (e.b * e.b * (1.0 / 3.0)) : hi.b
-    );
+    float3 scene = e <= 0.5
+        ? e * e * (1.0 / 3.0)
+        : (exp((e - 0.55991073) / 0.17883277) + 0.28466892) * (1.0 / 12.0);
     return scene * (1.0 / 0.265);
 #else                         // SDR (sRGB)
     return SrgbToLinear(encoded);
@@ -143,26 +136,18 @@ float3 ToWorkLinear(float3 encoded)
 float3 FromWorkLinear(float3 workLin)
 {
 #if BUFFER_COLOR_SPACE == 2   // scRGB
-    return clamp(Bt2020ToBt709(workLin) * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
+    return SanitizeFinite(Bt2020ToBt709(workLin) * (max(SD_REFERENCE_WHITE, 1.0) / 80.0), -65504.0, 65504.0);
 #elif BUFFER_COLOR_SPACE == 3 // HDR10 (PQ)
     float3 l = saturate(workLin * (max(SD_REFERENCE_WHITE, 1.0) / 10000.0));
     float3 y = SafePow(l, 0.1593017578125);
     float3 pq = SafePow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), 78.84375);
-    // Keep pure zero exact instead of returning PQ's min sub-threshold floor
-    return float3(
-        (l.r > 0.0) ? pq.r : 0.0,
-        (l.g > 0.0) ? pq.g : 0.0,
-        (l.b > 0.0) ? pq.b : 0.0
-    );
+    // Keep zero exact instead of returning the PQ offset floor
+    return l > 0.0 ? pq : 0.0;
 #elif BUFFER_COLOR_SPACE == 4 // HLG
     float3 scene = max(workLin, 0.0) * 0.265;
-    float3 lo = sqrt(3.0 * scene);
-    float3 hi = 0.17883277 * log(max(12.0 * scene - 0.28466892, 1e-7)) + 0.55991073;
-    return float3(
-        (scene.r <= (1.0 / 12.0)) ? lo.r : hi.r,
-        (scene.g <= (1.0 / 12.0)) ? lo.g : hi.g,
-        (scene.b <= (1.0 / 12.0)) ? lo.b : hi.b
-    );
+    return scene <= (1.0 / 12.0)
+        ? sqrt(3.0 * scene)
+        : 0.17883277 * log(max(12.0 * scene - 0.28466892, 1e-7)) + 0.55991073;
 #else                         // SDR (sRGB)
     return LinearToSrgb(workLin);
 #endif
@@ -177,7 +162,7 @@ float WorkLuma(float3 c)
 #endif
 }
 
-// Panchromatic silver weights (boosted red/blue vs Rec.709, transformed into BT.2020 in HDR)
+// Panchromatic silver weights (boosted red and blue vs Rec.709, transformed into BT.2020 in HDR)
 float SilverLuma(float3 c)
 {
 #if BUFFER_COLOR_SPACE == 2 || BUFFER_COLOR_SPACE == 3 || BUFFER_COLOR_SPACE == 4
@@ -187,15 +172,8 @@ float SilverLuma(float3 c)
 #endif
 }
 
-float Max3(float3 c)
-{
-    return max(c.r, max(c.g, c.b));
-}
-
-float Min3(float3 c)
-{
-    return min(c.r, min(c.g, c.b));
-}
+float Max3(float3 c) { return max(c.r, max(c.g, c.b)); }
+float Min3(float3 c) { return min(c.r, min(c.g, c.b)); }
 
 float EvalTail(float y, float m1, float k)
 {
@@ -206,12 +184,9 @@ float EvalTail(float y, float m1, float k)
 // Analytical zero-limit slope keeps dim shadows positive and continuous below the key floor
 float SlopeZero(float effAmt, int tech)
 {
-    if (tech == 3)
-        return 1.0;
-    if (tech == 0)
-        return 1.0 - effAmt * 0.44;
-    float d = (tech == 1) ? (1.55 * effAmt) : (2.65 * effAmt);
-    return rcp(1.0 + d);
+    if (tech == 3) return 1.0;
+    if (tech == 0) return 1.0 - effAmt * 0.44;
+    return rcp(1.0 + ((tech == 1) ? 1.55 : 2.65) * effAmt);
 }
 
 float EvalCurve(float y, float effAmt, int tech)
@@ -233,21 +208,19 @@ float EvalCurve(float y, float effAmt, int tech)
     [branch]
     if (tech == 0) // Subtle: protective toe slope with gentle upper-mid contrast
     {
-        float w = effAmt * 0.44;
-        float p = 0.52;
         float k = 1.0 + 0.85 * effAmt;
         float sp = SafePow(s, k);
-        float qp = (s < 1.0) ? SafePow(u * (p / (1.0 - p)), k) : 0.0;
+        float qp = SafePow(u * (0.52 / 0.48), k);
         float sc = ((sp + qp) > 0.0) ? (sp / (sp + qp)) : 0.0;
-        return SrgbToLinear(lerp(s, sc, w));
+        return SrgbToLinear(lerp(s, sc, effAmt * 0.44));
     }
-    else [branch] if (tech == 1) // Balanced: rational toe darkening (D) with mild upper-mid slope reduction (B)
+    else [branch] if (tech == 1) // Balanced: rational toe darkening with mild upper-mid slope reduction
     {
         float B = 0.50 * effAmt;
         float D = 1.55 * effAmt;
         return SrgbToLinear(s * (1.0 + B * s * u) / (1.0 + D * u * u));
     }
-    else // Intense: deep shadow toe (D) and upper-mid boost (M) with higher highlight slope flattening (B)
+    else // Intense: deep shadow toe and upper-mid boost with highlight slope flattening
     {
         float B = 0.60 * effAmt;
         float D = 2.65 * effAmt;
@@ -316,9 +289,9 @@ float SoftCap86(float x)
 float4 PS_SD_BleachBypass(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
     float4 src = tex2D(ReShade::BackBuffer, texcoord);
-    float rawAmt = clamp(cAmount, 0.0, 65504.0);
+    float rawAmt = SanitizeFinite(cAmount, 0.0, 65504.0);
     int toneMode = clamp(cTone, 0, 3);
-    float rawToneAmt = clamp(cToneAmount, 0.0, 65504.0);
+    float rawToneAmt = SanitizeFinite(cToneAmount, 0.0, 65504.0);
     float effTone = (toneMode != 0 && rawToneAmt > 0.0) ? Overdrive(rawToneAmt) : 0.0;
 
     [branch]
@@ -328,7 +301,7 @@ float4 PS_SD_BleachBypass(float4 vpos : SV_Position, float2 texcoord : TEXCOORD)
     int tech = clamp(cTechnique, 0, 3);
     float effAmt = Overdrive(rawAmt);
 
-    float3 workLin = ToWorkLinear(clamp(src.rgb, -65504.0, 65504.0));
+    float3 workLin = ToWorkLinear(SanitizeFinite(src.rgb, -65504.0, 65504.0));
     float3 pos = max(workLin, 0.0);
     float3 neg = workLin - pos;
 
@@ -339,36 +312,27 @@ float4 PS_SD_BleachBypass(float4 vpos : SV_Position, float2 texcoord : TEXCOORD)
     [branch]
     if (rawAmt > 0.0)
     {
-        // Evaluate key norm and saturation in shared BT.709 basis for SDR/HDR chromatic parity,
-        // normalized by dominant scale to avoid FP32 overflow or subnormal flush
+        // Shared BT.709 key norm and saturation keep SDR and HDR response matched
         float3 pos709 = ToBt709(pos);
         float yPos = WorkLuma(pos);
-        float keyScale = max(yPos, max(abs(pos709.r), max(abs(pos709.g), abs(pos709.b))));
-        float3 pn = (keyScale > 0.0) ? (pos709 / keyScale) : 0.0;
-        float yn = (keyScale > 0.0) ? (yPos / keyScale) : 0.0;
-        float key = keyScale * sqrt(0.5 * dot(pn, pn) * (1.0 / 3.0) + 0.5 * yn * yn);
+        float key = sqrt(0.5 * dot(pos709, pos709) * (1.0 / 3.0) + 0.5 * yPos * yPos);
 
         [branch]
         if (tech != 3)
-        {
-            float targetKey = EvalCurve(key, effAmt, tech);
-            gain = (key > 1e-12) ? (targetKey / key) : SlopeZero(effAmt, tech);
-        }
+            gain = (key > 1e-12) ? (EvalCurve(key, effAmt, tech) / key) : SlopeZero(effAmt, tech);
 
         float3 contrasted = pos * gain;
         float3 c709 = max(ToBt709(contrasted), 0.0);
         float c7Max = Max3(c709);
-        float c7Min = Min3(c709);
-        float chroma7 = c7Max - c7Min;
+        float chroma7 = c7Max - Min3(c709);
         float sat = (c7Max > 1e-12) ? saturate(chroma7 / c7Max) : 0.0;
 
         float sLuma = LinearToSrgb(saturate(yPos * gain));
         float mSilver = SilverLuma(contrasted);
-
         float darken;
 
         [branch]
-        if (tech == 0) // Subtle: asymmetric BT.709 hue gate protecting warm amber/skin tones
+        if (tech == 0) // Subtle: asymmetric BT.709 hue gate protecting amber and skin tones
         {
             float invChroma = (chroma7 > 1e-5 * c7Max) ? rcp(chroma7) : 0.0;
             float warmHue = saturate((c709.r - c709.g) * invChroma) * saturate((c709.r - c709.b) * invChroma);
@@ -389,7 +353,7 @@ float4 PS_SD_BleachBypass(float4 vpos : SV_Position, float2 texcoord : TEXCOORD)
             darken = max(1.0 - 0.20 * effAmt * sat * (1.0 - 0.55 * smoothstep(0.45, 1.0, sLuma)), 0.60);
         }
 
-        // Darken saturated colors alongside desaturation so high-chroma hues remain dense
+        // Darken saturated colors during desaturation to keep hues dense
         outWork = lerp(contrasted, mSilver * darken, desat);
     }
 
@@ -398,7 +362,7 @@ float4 PS_SD_BleachBypass(float4 vpos : SV_Position, float2 texcoord : TEXCOORD)
         outWork = ApplyToneCast(outWork, WorkLuma(outWork), effTone, toneMode);
 
 #if BUFFER_COLOR_SPACE != 2 && BUFFER_COLOR_SPACE != 3 && BUFFER_COLOR_SPACE != 4
-    // Saturation-gated SDR headroom compression preserves neutral white 1.0 exactly and keeps a C1 tail
+    // Saturation-gated SDR headroom compression keeps neutral white 1.0 exact with a C1 tail
     float inMax = Max3(pos);
     float ceiling = 1.0;
     [branch]
@@ -406,8 +370,7 @@ float4 PS_SD_BleachBypass(float4 vpos : SV_Position, float2 texcoord : TEXCOORD)
         ceiling = EvalCurve(inMax, effAmt, tech);
 
     float outMax = Max3(outWork);
-    float outMin = Min3(outWork);
-    float outSat = (outMax > 1e-12) ? saturate((outMax - outMin) / outMax) : 0.0;
+    float outSat = (outMax > 1e-12) ? saturate((outMax - Min3(outWork)) / outMax) : 0.0;
     float cap = ceiling * (1.0 - 0.06 * outSat * saturate(max(effAmt, effTone)));
     float over = max(outMax - cap, 0.0);
     if (over > 0.0)
