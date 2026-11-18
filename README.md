@@ -15,7 +15,7 @@
 
 ## Installation
 
-Requires ReShade 5.2+ for automatic HDR color space detection, earlier versions default to SDR.
+Requires ReShade 5.2+ for automatic HDR color space detection; earlier versions default to SDR.
 
 ### RHI
 
@@ -40,7 +40,7 @@ In the game, open the ReShade overlay (Home tab), enable the shaders and arrange
 
 <table><tr><td width="560">
 
-https://github.com/user-attachments/assets/7471b9e5-27ae-4964-8480-599a793afb22
+https://github.com/user-attachments/assets/ae2ffb47-6025-473f-96a3-54f65bbbc4ad
 
 </td></tr></table>
 
@@ -50,7 +50,7 @@ https://github.com/user-attachments/assets/7471b9e5-27ae-4964-8480-599a793afb22
 `SD_Umbra` applies a smooth shadow curve in linear light, measuring darkness by the brightest RGB channel:
 - Shadows gain depth while keeping near-black detail visible unless Black Point is raised.
 - Saturated colors are judged by their strongest channel, so bright primaries like pure blue are not mistaken for shadows.
-- Midtones above the threshold, reference white and HDR highlights remain unchanged.
+- Midtones above the threshold, reference white and HDR highlights stay unchanged.
 
 **Techniques**
 
@@ -71,18 +71,18 @@ https://github.com/user-attachments/assets/7471b9e5-27ae-4964-8480-599a793afb22
 
 <table><tr><td width="560">
 
-https://github.com/user-attachments/assets/b868903e-82e5-4611-a44c-76bea4166aa5
+https://github.com/user-attachments/assets/1fea9e25-1edc-48ea-a046-4ee0b6d65c2f
 
 </td></tr></table>
 
 <details>
 <summary>Details</summary>
 
-`SD_Contrast` adjusts contrast across shadows, midtones and highlights around a balance tone using exact inverse curves, complementing `SD_Umbra` by acting on the full tonal range after black levels are clean:
+`SD_Contrast` adjusts contrast around a balance tone using exact inverse curves, complementing `SD_Umbra` across the full tonal range after black levels are clean:
 - Pure black, neutral balance tones and neutral reference white stay unchanged in SDR and HDR; in Soften, near-black shadows above pure black brighten.
-- Bright HDR highlights above reference white smoothly rejoin untouched peak brightness with no hard transition.
+- HDR highlights above reference white rejoin peak brightness smoothly.
 - A smooth headroom limiter in SDR and positive `BT.2020` working transforms in HDR prevent channel clipping and wide-gamut negative values.
-- Place `SD_Umbra` above `SD_Contrast` when pairing both shaders. Putting `SD_Contrast` first lets `Soften` lift washed-out black levels above `Black Point` and lets `Contrast` push near-black detail into clipping; beware that stacking heavy shadow darkening across both shaders in 8-bit SDR also reduces deep-shadow gradient steps.
+- Place `SD_Umbra` above `SD_Contrast` when pairing both shaders. Putting `SD_Contrast` first lets `Soften` lift washed-out black levels above `Black Point` and lets `Contrast` push near-black detail into clipping; stacking heavy shadow darkening across both shaders in 8-bit SDR also reduces deep-shadow gradient steps.
 
 **Techniques**
 
@@ -103,34 +103,34 @@ https://github.com/user-attachments/assets/b868903e-82e5-4611-a44c-76bea4166aa5
 
 <table><tr><td width="560">
 
-https://github.com/user-attachments/assets/c894299f-5d62-437f-ad53-29c77e8c5b7c
+https://github.com/user-attachments/assets/6a2b70bf-a109-4f0e-9d35-0a5970c158ca
 
 </td></tr></table>
 
 <details>
 <summary>Details</summary>
 
-Polarizing filters cut surface glare to reveal the underlying colors.
-`SD_Polarizer` offers a simple RGB approximation of this effect by decreasing
+Polarizing filters cut surface glare to reveal underlying colors.
+`SD_Polarizer` approximates this effect in RGB by reducing
 the weakest channel and scaling the others proportionally:
 - Partially saturated colors respond the most, gaining depth and contrast.
 - Near-neutral colors, deep shadows and red-dominant hues darken less to avoid gray highlights, clipped shadows and muddy warm shades.
-- Neutral tones and fully saturated colors remain unchanged.
+- Neutral tones and fully saturated colors stay unchanged.
 
 **Controls**
 
 - **Amount** sets the effect strength.
-- **Rolloff** decreases the effect gradually toward bright areas. At 1, reference white and specular highlights remain unchanged.
+- **Rolloff** reduces the effect toward bright areas. At 1, reference white and specular highlights stay unchanged.
 
 </details>
 
 ### `SD_SubSat`
 
-> Subtractive saturation that decreases brightness as saturation increases to keep colors dense.
+> Decreases brightness as saturation increases to keep colors dense.
 
 <table><tr><td width="560">
 
-https://github.com/user-attachments/assets/68ea9190-5141-4e03-a42e-bfc74a2f559b
+https://github.com/user-attachments/assets/c07a32f7-1c46-4899-8efa-cc02711badd3
 
 </td></tr></table>
 
@@ -139,19 +139,20 @@ https://github.com/user-attachments/assets/68ea9190-5141-4e03-a42e-bfc74a2f559b
 
 Unlike conventional saturation, which pushes RGB channels apart without
 dimming them, `SD_SubSat` darkens weaker channels to separate colors and avoid
-clipping. Mixed hues shift slightly toward the dominant primary while strength
-stays consistent across shadows and highlights.
+clipping while keeping transitions across hue boundaries smooth. Mixed hues
+shift slightly toward the dominant primary and strength stays consistent across
+shadows and highlights.
 
 **Techniques**
 
-- **Subtle** (default) uses gentle rational compression without power curves for a natural response on midtones and skin.
-- **Balanced** combines square-root mean density with moderate channel darkening for deeper overall contrast.
-- **Intense** applies harmonic mean density with a steeper curve for strong color separation.
+- **Subtle** (default) uses rational compression without power curves for a natural response on midtones and skin.
+- **Balanced** pairs deeper rational compression with moderate power-curve channel darkening for higher contrast.
+- **Intense** steepens the high-saturation response with stronger channel separation.
 
 **Controls**
 
 - **Amount** sets the effect strength.
-- **Rolloff** decreases the effect gradually toward bright areas. At 1, reference white and specular highlights remain unchanged.
+- **Rolloff** reduces the effect toward bright areas. At 1, neutral reference white and intense highlights stay unchanged.
 
 </details>
 
@@ -161,7 +162,7 @@ stays consistent across shadows and highlights.
 
 <table><tr><td width="560">
 
-https://github.com/user-attachments/assets/74c73669-dff3-4afc-a36e-294a5d12da18
+https://github.com/user-attachments/assets/eef75d72-5522-4e97-85a0-1a0f3ad80b5b
 
 </td></tr></table>
 
@@ -172,12 +173,12 @@ Strength scales with saturation and closeness to primary colors while keeping
 channel ratios intact. At Amount 1:
 - Primaries (red, green, blue) darken by 70%.
 - Secondaries (yellow, cyan, magenta) darken by 45%, keeping mixed hues from getting too dark.
-- Neutral tones (white, gray, pure black) remain unchanged.
+- Neutral tones (white, gray, pure black) stay unchanged.
 
 **Controls**
 
 - **Amount** sets the effect strength.
-- **Rolloff** decreases the effect gradually toward bright areas. At 1, reference white and specular highlights remain unchanged.
+- **Rolloff** reduces the effect toward bright areas. At 1, reference white and specular highlights stay unchanged.
 
 </details>
 
@@ -187,7 +188,7 @@ channel ratios intact. At Amount 1:
 
 <table><tr><td width="560">
 
-https://github.com/user-attachments/assets/38efd368-54ce-402b-a524-eccc5621f6ab
+https://github.com/user-attachments/assets/a957ff8c-a365-438a-b7fa-dc7be39bb770
 
 </td></tr></table>
 
@@ -196,20 +197,20 @@ https://github.com/user-attachments/assets/38efd368-54ce-402b-a524-eccc5621f6ab
 
 Skipping the bleach bath leaves metallic silver alongside color dyes, increasing tonal contrast while muting color. `SD_BleachBypass` models this look in linear working light while keeping shadows clean and highlights smooth:
 - Pure black stays exact (though raised in-game black levels above zero still receive contrast and tint) and neutral reference white (1.0 in SDR, 203 nits default in HDR) stays unchanged in brightness and hue.
-- Bright HDR highlights above reference white extend smoothly with no hard seam; bright colors at high contrast compress gradually in SDR to avoid channel clipping.
+- HDR highlights above reference white extend smoothly; bright SDR colors compress near clipping limits.
 
 **Techniques**
 
-- **Subtle** (default) protects warm amber and skin tones while muting green and cyan hues with gentle shadow compression.
+- **Subtle** (default) protects amber and skin tones while muting green and cyan hues with gentle shadow compression.
 - **Balanced** deepens shadows and lower midtones with uniform desaturation and color darkening.
 - **Intense** combines deep shadows, lifted upper midtones and strong desaturation; when stacked after `SD_Umbra` and `SD_Contrast`, subtle 8-bit deep-shadow bands may appear (`Subtle` or `Color` preserves finer shadow steps).
-- **Color** skips neutral gray contrast so gray values pass untouched under Neutral tone; applies only desaturation, color darkening and optional Tone so contrast comes from `SD_Contrast` upstream.
+- **Color** skips neutral gray contrast so gray values pass untouched under Neutral tone; applies only desaturation, color darkening and optional Tone to pair after `SD_Contrast`.
 
 **Controls**
 
 - **Amount** sets the bleach contrast and desaturation strength.
 - **Tone** leaves colors untinted at Neutral (default) or applies Cool (steel blue), Warm (amber) or Emerald (cyan-green) to shadows and midtones while keeping pure black unchanged and reference white plus brighter highlights neutral.
-- **Tone Amount** sets the Tone tint strength independently of Amount.
+- **Tone Amount** sets Tone strength independently of Amount.
 
 </details>
 
@@ -219,7 +220,7 @@ Skipping the bleach bath leaves metallic silver alongside color dyes, increasing
 
 <table><tr><td width="560">
 
-https://github.com/user-attachments/assets/4e8a4aaa-5ca0-4838-ae19-57f82383f995
+https://github.com/user-attachments/assets/961f72ac-f691-4770-b89d-6411d1c1acbe
 
 </td></tr></table>
 
@@ -230,18 +231,51 @@ Michael Orton stacked two overexposed slides of the same scene, one sharp and
 one out of focus. `SD_Orton` emulates this by blurring a copy in linear light
 and multiplying it with the sharp image:
 - Bright areas glow into their surroundings, while broad shadows deepen and colors gain density.
-- Flat bright regions at or above reference white remain unchanged.
+- Flat bright regions at or above reference white stay unchanged.
 - Small highlights on dark backgrounds dim as the blurred surroundings suppress isolated points.
 
 **Techniques**
 
-- **Classic** (default) overexposes every pixel of the sharp image, dissolving fine detail into a dreamy glow.
-- **Sharp** overexposes the local average instead, so fine detail keeps its contrast under the same tonal response.
+- **Classic** (default) overexposes every pixel of the sharp image, softening fine detail into the glow.
+- **Sharp** overexposes only the blurred copy, keeping fine detail crisp under the same tonal response.
 
 **Controls**
 
 - **Amount** sets the effect strength.
-- **Radius** sets the blur radius of the glow.
+- **Radius** sets the glow spread relative to screen height.
+
+</details>
+
+### `SD_Sfumato`
+
+> Smooths harsh digital edges along contours for a softer, more painterly look without blurring out detail.
+
+<table><tr><td width="560">
+
+https://github.com/user-attachments/assets/6f433070-4611-4876-8c99-a0191a87667b
+
+</td></tr></table>
+
+<details>
+<summary>Details</summary>
+
+Named after the Renaissance technique of blending tones without harsh outlines, `SD_Sfumato` estimates edge direction from a smoothed structure tensor and blends colors along each contour in perceptual space. Symmetric cross-contour sampling softens stair-steps, oversharpened seams and hard pixel transitions without shifting contours or spreading HDR highlight halos:
+- Blends along contours instead of blurring uniformly across pixels, leaving areas below `Threshold` unchanged while keeping contour position and width intact.
+- **Hybrid** and **Depth** modes require ReShade's **Generic Depth** add-on.
+- Place after sharpening and before depth of field, grain and dithering to smooth the contour aliasing and oversharpened seams that sharpening brings out without re-sharpening the result.
+
+**Modes**
+
+- **Color** (default) blends all sharp edges across 3D contours, aliasing and surface detail.
+- **Hybrid** keeps full strength on 3D contours and half strength on surface detail.
+- **Depth** limits blending to 3D contours.
+
+**Controls**
+
+- **Amount** sets the blending strength along edges.
+- **Advanced / Radius** sets the stroke length along edges relative to screen height.
+- **Advanced / Threshold** sets the minimum edge contrast that starts blending. Lower values also blend fine detail and aliasing while higher values limit blending to major contours.
+- **Advanced / Debug View** selects `Off` (default), `Edges` (blending mask) or `Disparity` (depth boundary preview, active even when `Amount` is `0`).
 
 </details>
 
@@ -249,16 +283,17 @@ and multiplying it with the sharp image:
 
 ReShade lists shaders alphabetically rather than by processing order, placing all other SD shaders above `SD_Umbra` by default. Reorder them top-to-bottom as shown below, keeping AutoHDR shaders, input calibration (gamma or black-level fixes) and base exposure adjustments at the top above `SD_Umbra`:
 
-| Order | Shaders | Role in stack |
+| Order | Shaders | Why |
 | :--- | :--- | :--- |
-| 1 | [`SD_Umbra`](#sd_umbra) | Sets shadow depth and black levels before overall contrast |
-| 2 | [`SD_Contrast`](#sd_contrast) | Adjusts tonal contrast before color passes |
-| 3 | [`SD_Polarizer`](#sd_polarizer), [`SD_SubSat`](#sd_subsat), [`SD_ColDensity`](#sd_coldensity) | Adjusts color saturation and density after tonal balance (`SD_Polarizer` first when paired with `SD_SubSat`) |
-| 4 | [`SD_BleachBypass`](#sd_bleachbypass) | Deepens shadows, adds contrast and mutes color before glow (`Color` pairs downstream of `SD_Contrast`) |
-| 5 | [`SD_Orton`](#sd_orton) | Applies spatial glow after tone and color passes so they do not alter blur falloff |
-| 6 | Sharpening (like `lilium__rcas_hdr`) | Sharpens edges and detail after glow passes |
-| 7 | Finishing passes (DoF, lens, grain, dithering) | Applies optical, grain and dithering effects after tonal passes |
-| 8 | SDR-only effects | Legacy `[0, 1]` effects go last to prevent HDR highlight and wide-gamut clipping |
+| 1 | [`SD_Umbra`](#sd_umbra) | Sets pure-black floor before later contrast or color curves stretch washed-out shadows |
+| 2 | [`SD_Contrast`](#sd_contrast) | Balances exposure before color passes scale individual RGB channels |
+| 3 | [`SD_Polarizer`](#sd_polarizer), [`SD_SubSat`](#sd_subsat), [`SD_ColDensity`](#sd_coldensity) | Works on settled tonal balance; put `SD_Polarizer` above `SD_SubSat` |
+| 4 | [`SD_BleachBypass`](#sd_bleachbypass) | Feeds finalized tone and color into glow (`Color` pairs below `SD_Contrast`) |
+| 5 | [`SD_Orton`](#sd_orton) | Reads final highlights and darks so downstream passes do not skew blur falloff |
+| 6 | Sharpening (like `lilium__rcas_hdr`) | Recovers micro-texture softened by `SD_Orton` |
+| 7 | [`SD_Sfumato`](#sd_sfumato) | Smooths contour aliasing and sharpening halos without getting re-sharpened |
+| 8 | Finishing passes (DoF, lens, grain, dithering) | Stops optical blur, film grain or noise from steering edge detection |
+| 9 | SDR-only effects | Clamps to `[0, 1]` at the end instead of clipping HDR peaks and wide gamut early |
 
 ## HDR Notes
 
